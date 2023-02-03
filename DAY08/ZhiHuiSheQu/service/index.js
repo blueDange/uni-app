@@ -143,3 +143,80 @@ export let feeCollector = async (type)=>{
 	//5.返回响应消息主体
 	return res.data
 }
+
+/**
+ * 3.3、提交缴费记录
+ * 接口地址：fee/add
+ * 请求方式：POST
+ * 请求主体格式：application/json
+ * 请求数据说明：
+ *	名称	必填	类型	说明
+ *	token	是	string	请求头部中必须携带登录成功后得到的身份令牌，且必须在有效期内
+ *	type	是	number	1-水费、2-电费、3-燃气费、4-物业费、5-停车费、6-宽带费
+ *	collectorId	是	number	收费单位编号
+ * 	householdId	是	string	业主用户编号
+ *	amount	是	float(10,2)	缴费金额
+ */
+export let feeAdd = async (type,collectorId,householdId,amount)=>{
+	let url = base + 'fee/add'
+	//2.显示“加载中”提示框	
+	uni.showLoading({
+		title: '缴费中'
+	})
+	//3.发起异步请求消息
+	let [err, res] = await uni.request({
+		url,			//请求地址
+		method: 'POST',
+		header: {	//请求头部-token(客户端身份令牌)
+			token: uni.getStorageSync('userToken')
+		},
+		data: {type, collectorId, householdId, amount}
+	})
+	//4.隐藏“加载中”提示框
+	uni.hideLoading()
+	//5.返回响应消息主体
+	return res.data
+}
+
+/**
+ * 4.1、根据业主缴费编号查询该业主的基本信息
+ * 接口地址：household/query
+ * 请求方式：GET
+ * 请求示例：household/query?hhid=S60011
+ * 注意：前端对此接口的请求需要防抖，时间间隔在2s以上
+ */
+export let householdQuery = async (hhid)=>{
+	//1.准备请求URL   
+	let url = base + `household/query?hhid=${hhid}`
+	//2.显示“加载中”提示框	
+	uni.showLoading({
+		title: '业主信息读取中'
+	})
+	//3.发起异步请求消息
+	let [err, res] = await uni.request({ url })
+	//4.隐藏“加载中”提示框
+	uni.hideLoading()
+	//5.返回响应消息主体
+	return res.data
+}
+
+/**
+ * 5.1、返回所有停车区坐标及当前空闲数据
+ * 接口地址：parking/zone/list
+ * 请求方式：GET
+ * 请求主体：无
+ */
+export let parkingZoneList = async ()=>{
+	//1.准备请求URL   
+	let url = base + `parking/zone/list`
+	//2.显示“加载中”提示框	
+	uni.showLoading({
+		title: '数据读取中'
+	})
+	//3.发起异步请求消息
+	let [err, res] = await uni.request({ url })
+	//4.隐藏“加载中”提示框
+	uni.hideLoading()
+	//5.返回响应消息主体
+	return res.data
+}

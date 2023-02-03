@@ -1,6 +1,6 @@
 <template>
 	<view class="content">
-		<!-- F1：自定义导航条 -->
+		<!-- F1：自定义导航条  -->
 		<uni-nav-bar class="nav-bar" left-icon="back" left-text="返回" right-icon="list" title="缴 费" background-color="#090" color="#fff" @clickLeft="back" @clickRight="jump('/pages/feeRecord/feeRecord')"/>
 		<!-- F2：缴费类型&金额 -->
 		<uni-list class="list-amount">
@@ -8,7 +8,7 @@
 				<template v-slot:footer>
 					<view class="footer-amount">
 						<!-- type="digit": 弹出“带小数点”的数字键盘 -->
-						<input type="digit" placeholder="请输入缴费金额">
+						<input v-model="amount" type="digit" placeholder="请输入缴费金额">
 						<text>元</text>						
 					</view>
 				</template>
@@ -21,11 +21,23 @@
 		<!-- Vue.js中事件处理时省略方法的定义有两个前提：①处理过程只有一句话  ②处理过程以this开头 -->
 		<uni-list class="list-details">
 			<uni-list-item title="缴费单位" showArrow clickable :rightText="collectors.length===0 ? '加载中' : collectors[curCollector].cname" @click="$refs.popupCollectors.open()"></uni-list-item>
-			<uni-list-item title="用户编号"></uni-list-item>
-			<uni-list-item title="户名"></uni-list-item>
-			<uni-list-item title="用户住址"></uni-list-item>
+			<uni-list-item title="用户编号">
+				<template v-slot:footer>
+					<input class="user-id" placeholder="请输入用户编号" v-model="userId" @input="doUserIdChange">
+				</template>
+			</uni-list-item>
+			<uni-list-item :rightText="household.householdName">
+				<template v-slot:header>
+					<text class="household-name">户名</text>
+				</template>
+			</uni-list-item>
+			<uni-list-item title="用户住址" :rightText="household.householdAddr"></uni-list-item>
 		</uni-list>
-		<!-- F4：提交按钮 -->
+		<!-- F4：提交按钮	-->
+		<view class="f4">
+			<button @click="submitPay">立即缴费</button>
+		</view>
+		
 		<!-- F5：(隐藏默认不显示)收费单位列表 -->
 		<!-- type: 弹出方式，top/right/bottom/left/center -->
 		<!-- mask-click：允许用户点击半透明遮罩层关闭弹出框吗？ -->
@@ -37,9 +49,16 @@
 				</view>
 				<!-- 弹出层主体 -->
 				<view class="popup-body">
-					<radio-group class="radio-group" @change="tmpCollector=$event.detail.value">
+					<radio-group class="radio-group" @change="tmpCollector = $event.detail.value">
+						<!-- 
+						 f1(e){
+							 //把当前用户选中的缴费单位下标赋值给“临时选中的缴费单位下标”
+							 this.tmpCollector = e.detail.value
+						 }
+						 -->
 						<label v-for="(c, i) in collectors" :key="i" class="radio-item">
 							<text>{{c.cname}}</text>
+							<!-- 指定当用户选中当前单选按钮时，对应的数值：不要使用缴费单位名称，也不要使用缴费单位编号，而是当前缴费单位在所有缴费单位数组中的下标 -->
 							<radio :value="String(i)" :checked="curCollector==i"/>
 						</label>
 					</radio-group>
@@ -55,7 +74,7 @@
 </template>
 
 <script>
-import { feeCollector } from '../../service'
+	import { feeAdd, feeCollector, householdQuery } from '@/service'
 	export default {
 		data() {
 			return {
@@ -63,6 +82,10 @@ import { feeCollector } from '../../service'
 				collectors: [],		//费用收缴单位列表
 				curCollector: 0,	//当前选中的缴费单位下标	
 				tmpCollector: 0,	//临时选中尚未点击确定的缴费单位下标
+				userId: '',			//用户在输入框中输入的“缴费用户编号”
+				requestTimer: null,	//当前页面的全局变量，表示发起服务器端防抖请求的定时器
+				household: {},		//根据用户输入的业主编号，查询到的业主信息
+				amount: '',			//缴费金额
 			}
 		},
 		//生命周期方法 —— 组件挂载时
@@ -82,6 +105,77 @@ import { feeCollector } from '../../service'
 			}
 		},
 		methods: {
+			//处理“立即缴费”操作
+			async submitPay(){
+				//必需数据1：缴费类型
+				let type = this.type
+				//必需数据2：收费单位的编号
+				let collectorId = this.collectors[this.curCollector].cid 
+				//必需数据3：业主的编号
+				let householdId = this.household.householdId
+				if(!householdId){
+					uni.showToast({
+						title:'请填写有效的业主编号',
+						icon:'error',
+						duration: 3000
+					})
+					return
+				}
+				//必需数据4：缴费金额
+				let amount = this.amount
+				if(!amount || amount<=0){
+					uni.showToast({
+						title:'请正确填写缴费金额',
+						icon:'error',
+						duration: 3000
+					})
+					return
+				}
+				//异步请求服务器端接口
+				let data = await feeAdd(type, collectorId, householdId, amount)
+				if(data.code===2000){
+					uni.showToast({
+						title:'缴费成功'
+					})
+					this.amount = ''
+					this.userId = ''
+					this.household = {}
+				}else {
+					uni.showToast({
+						title:'缴费失败:'+data.msg,
+						icon:'error'
+					})
+				}
+			},
+			//处理“用户编号”输入框中的内容改变
+			doUserIdChange(e){
+				//调用服务器端接口，根据用户编号，查询其对应的户主信息 —— 防抖调用
+				if(this.requestTimer){
+					//停止定时器任务
+					clearTimeout(this.requestTimer)
+					//定时器值为空
+					this.requestTimer = null
+				}
+				//重新创建一个全新的定时器任务
+				this.requestTimer = setTimeout(async ()=>{
+					//异步请求服务器端接口，获取业主信息
+					if(e.detail.value.length>3){  //只有输入数据长度满足一定要求才可能发起请求
+						//console.log('即将发起服务器查询：', e.detail.value)
+						let data = await householdQuery(e.detail.value)
+						if(data.code===2000){	//根据业主编号查询到了相关记录
+							//console.log('查询成功：', data.msg)
+							this.household = data.msg
+						}else {  //用户输入的业主编号不存在
+							this.household = {}  //清除之前可能已经查询到的数据
+							uni.showToast({
+								title: '业主编号不存在',
+								icon: 'error',
+								duration: 3000
+							})
+						}
+					}
+				}, 2000)
+			},
 			back(){
 				//返回访问历史栈中的上一个页面
 				uni.navigateBack()
@@ -92,7 +186,7 @@ import { feeCollector } from '../../service'
 			},
 			chooseCollector(){
 				//保存选中的“缴费单位”编号
-				this.curCollector = this.tmpCollector
+				this.curCollector = this.tmpCollector   //此时的tmpCollector是String
 				//关闭弹出层
 				this.$refs.popupCollectors.close()
 			}
@@ -117,6 +211,17 @@ import { feeCollector } from '../../service'
 }
 .list-details {
 	margin-top: $uni-spacing-col-base;
+	.user-id {
+		font-size: $uni-font-size-sm;
+		// width: $uni-font-size-sm * 8;
+		text-align: right;
+	}
+	.household-name {
+		font-size: $uni-font-size-base;
+		width: $uni-font-size-base * 4;
+		//text-align: justify; //段落中的文字在一行中“两端调整对齐”（仅对非最后一行有效）
+		text-align-last: justify; //段落中的文字在一行中“两端调整对齐”（仅对最后一行有效）
+	}
 }
 .popup-content {
 	flex-direction: column;//弹性容器主轴方向：纵向
@@ -148,6 +253,16 @@ import { feeCollector } from '../../service'
 		box-shadow: 0 0 16rpx $uni-border-color;
 		padding: $uni-spacing-col-base $uni-spacing-row-base;
 		button { font-size: $uni-font-size-base;}
+	}
+}
+.f4 {
+	padding: $uni-spacing-col-lg*4  $uni-spacing-row-lg;
+	button {
+		background-color: $zh-theme-color;
+		width: 100%;
+		font-size: $uni-font-size-base;
+		color: $uni-text-color-inverse;
+		&:active { background-color: darken($zh-theme-color, 5%); }
 	}
 }
 </style>
